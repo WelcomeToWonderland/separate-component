@@ -90,7 +90,7 @@ def train_model(model, dataloader, criterion, optimizer, num_epochs=100, device=
     best_loss = float('inf')
 
     for epoch in range(num_epochs):
-        print(f'Epoch {epoch}/{num_epochs - 1}')
+        print(f'Epoch {epoch + 1}/{num_epochs}')
         print('-' * 10)
         
         model.train()
@@ -145,20 +145,23 @@ def infer_model(model, dataloader, device='cuda'):
 
 # 主函数
 def main():
-    parent_dir = '/home/fdu06/jingzhi_dev/datasets/only-component'  # 数据集目录
-    batch_size = 32
+    # parent_dir = '/home/fdu06/jingzhi_dev/datasets/only-component'  # 数据集目录
+    parent_dir = "/home/chenzhuofan/project_que/datasets/only-component/"
+    parent_dir_train = os.path.join(parent_dir, 'train')
+    parent_dir_test = os.path.join(parent_dir, 'test')
+    batch_size = 8
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # 数据集和数据加载器
-    train_dataset = ImageDataset(parent_dir)
+    train_dataset = ImageDataset(parent_dir_train)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     
     # 测试集数据加载器，batch size设置为1
-    test_dataset = ImageDataset(parent_dir)
+    test_dataset = ImageDataset(parent_dir_test)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4)
     
     # 使用make_model函数生成模型
-    model = make_model()
+    model = make_model(None)
     
     # 使用所有可用的GPU
     if torch.cuda.device_count() > 1:

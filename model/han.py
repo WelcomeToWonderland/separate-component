@@ -1,7 +1,8 @@
-# import os
-# import sys
-# current_dir = os.path.dirname(os.path.abspath(__file__))
+import os
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
 # sys.path.append(os.path.join(current_dir, "model"))
+sys.path.append(current_dir)
 import common
 import torch
 import torch.nn as nn
@@ -265,7 +266,8 @@ class HAN(nn.Module):
 
         res_scale = 1
 
-        n_colors = 3
+        # n_colors = 3
+        n_colors = 1
 
 
         """
@@ -280,11 +282,13 @@ class HAN(nn.Module):
         # self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
         # self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
         self.shift_mean = True
-        rgb_mean=(0.485, 0.456, 0.406)
-        rgb_std=(0.229, 0.224, 0.225)
+        # rgb_mean=(0.485, 0.456, 0.406)
+        # rgb_std=(0.229, 0.224, 0.225)
         rgb_range = 255
-        self.sub_mean = common.MeanShift(rgb_range, rgb_mean, rgb_std)
-        self.add_mean = common.MeanShift(rgb_range, rgb_mean, rgb_std, 1)
+        # self.sub_mean = common.MeanShift(rgb_range, rgb_mean, rgb_std)
+        # self.add_mean = common.MeanShift(rgb_range, rgb_mean, rgb_std, 1)
+        self.sub_mean = common.MeanShift(rgb_range, channels=n_colors, sign=-1)
+        self.add_mean = common.MeanShift(rgb_range, channels=n_colors, sign=1)
 
 
         # define head module
