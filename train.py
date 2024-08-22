@@ -9,13 +9,18 @@ from torchvision import transforms
 from PIL import Image, ImageOps
 from datetime import datetime
 from alive_progress import alive_bar
+import matplotlib.pyplot as plt
 from model.han import make_model  # 导入自定义模型
+
+# 获取当前文件所在的绝对路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
 # 定义数据集类
 class ImageDataset(Dataset):
-    def __init__(self, parent_dir, transform=None):
+    def __init__(self, parent_dir, output_size=(128, 128), transform=None):
         self.image_dir = os.path.join(parent_dir, 'img')
         self.label_dir = os.path.join(parent_dir, 'label')
+        self.output_size = output_size
         self.transform = transform or transforms.Compose([
             transforms.ToTensor(),  # 将图像转换为Tensor
         ])
@@ -32,9 +37,8 @@ class ImageDataset(Dataset):
         image = Image.open(image_path).convert("RGB")
         label = Image.open(label_path).convert("RGB")
 
-        # 使用预处理方法处理图像
-        image = self.preprocess_image(image)
-        label = self.preprocess_image(label)
+        # 使用预处理方法处理图像和标签
+        image, label = self.preprocess_image(image, label)
         
         if self.transform:
             image = self.transform(image)
@@ -42,52 +46,65 @@ class ImageDataset(Dataset):
         
         return image, label
     
-    def preprocess_image(self, image):
-        # 将图像转换为NumPy数组
+    def preprocess_image(self, image, label):
+        # 将所有非白色像素转换为黑色像素
         image_np = np.array(image)
+        image_np[(image_np != [255, 255, 255]).any(axis=-1)] = [0, 0, 0]
+        image = Image.fromarray(image_np)
         
-        # 目标尺寸
-        target_width = 1024
-        target_height = 1024
+        # 灰度化和二值化
+        gray_image = image.convert("L")
+        _, binary_image_np = cv2.threshold(np.array(gray_image), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        binary_image = Image.fromarray(binary_image_np)
+        
+        gray_label = label.convert("L")
+        _, binary_label_np = cv2.threshold(np.array(gray_label), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        binary_label = Image.fromarray(binary_label_np)
 
-        # 获取原始图像尺寸
-        old_width, old_height = image.size
+        # 进行随机裁剪
+        image, label = self.random_crop(binary_image, binary_label, self.output_size)
+        
+        return image, label
 
-        # 计算填充量
-        left = (target_width - old_width) // 2
-        top = (target_height - old_height) // 2
-        right = target_width - old_width - left
-        bottom = target_height - old_height - top
+    def random_crop(self, image, label, output_size):
+        width, height = image.size
+        
+        # 计算填充量以确保输出尺寸大于原始尺寸
+        if width < output_size[0]:
+            padding_left = max((output_size[0] - width) // 2, 0)
+            padding_right = output_size[0] - width - padding_left
+        else:
+            padding_left = padding_right = 0
 
-        # 确保填充量非负
-        left = max(left, 0)
-        top = max(top, 0)
-        right = max(right, 0)
-        bottom = max(bottom, 0)
+        if height < output_size[1]:
+            padding_top = max((output_size[1] - height) // 2, 0)
+            padding_bottom = output_size[1] - height - padding_top
+        else:
+            padding_top = padding_bottom = 0
+
+        # 对image和label进行同步填充
+        image = ImageOps.expand(image, border=(padding_left, padding_top, padding_right, padding_bottom), fill=255)
+        label = ImageOps.expand(label, border=(padding_left, padding_top, padding_right, padding_bottom), fill=255)
+
+        # 获取填充后的尺寸
+        width, height = image.size
         
-        # 应用填充
-        padded_image = ImageOps.expand(image, border=(left, top, right, bottom), fill=255)
+        # 进行随机裁剪
+        left = np.random.randint(0, width - output_size[0] + 1)
+        top = np.random.randint(0, height - output_size[1] + 1)
+        right = left + output_size[0]
+        bottom = top + output_size[1]
         
-        # 将填充后的图像转换为NumPy数组
-        padded_image_np = np.array(padded_image)
+        image = image.crop((left, top, right, bottom))
+        label = label.crop((left, top, right, bottom))
         
-        # 图像预处理：灰度化和二值化
-        gray = cv2.cvtColor(padded_image_np, cv2.COLOR_RGB2GRAY)
-        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        # 将处理后的图像转换回PIL图像
-        processed_image = Image.fromarray(binary)
-        
-        # Center Crop到1024x1024
-        processed_image = transforms.functional.center_crop(processed_image, (1024, 1024))
-        
-        return processed_image
-# 定义训练函数
-def train_model(model, dataloader, criterion, optimizer, num_epochs=100, device='cuda'):
-    log_dir = os.path.join('logs', datetime.now().strftime('%Y%m%d_%H%M%S'))
-    os.makedirs(log_dir, exist_ok=True)
-    
+        return image, label
+
+# 定义训练和测试函数
+def train_and_evaluate_model(model, train_loader, test_loader, criterion, optimizer, log_dir, num_epochs=100, device='cuda'):
     best_loss = float('inf')
+    train_losses = []
+    test_losses = []
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1}/{num_epochs}')
@@ -96,8 +113,8 @@ def train_model(model, dataloader, criterion, optimizer, num_epochs=100, device=
         model.train()
         
         running_loss = 0.0
-        with alive_bar(len(dataloader), title="Training") as bar:
-            for inputs, labels in dataloader:
+        with alive_bar(len(train_loader), title="Training") as bar:
+            for inputs, labels in train_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
 
                 optimizer.zero_grad()
@@ -110,26 +127,57 @@ def train_model(model, dataloader, criterion, optimizer, num_epochs=100, device=
                 running_loss += loss.item() * inputs.size(0)
                 bar()
 
-        epoch_loss = running_loss / len(dataloader.dataset)
-        print(f'Training Loss: {epoch_loss:.4f}')
+        epoch_train_loss = running_loss / len(train_loader.dataset)
+        train_losses.append(epoch_train_loss)
+        print(f'Training Loss: {epoch_train_loss:.4f}')
+        
+        # 测试模型
+        model.eval()
+        running_test_loss = 0.0
+        with torch.no_grad():
+            with alive_bar(len(test_loader), title="Testing") as bar:
+                for inputs, labels in test_loader:
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    
+                    outputs = model(inputs)
+                    loss = criterion(outputs, labels)
+                    
+                    running_test_loss += loss.item() * inputs.size(0)
+                    bar()
+
+        epoch_test_loss = running_test_loss / len(test_loader.dataset)
+        test_losses.append(epoch_test_loss)
+        print(f'Test Loss: {epoch_test_loss:.4f}')
         
         # 保存当前模型权重
         torch.save(model.state_dict(), os.path.join(log_dir, f'model_epoch_{epoch}.pth'))
         
         # 保存最佳模型权重
-        if epoch_loss < best_loss:
-            best_loss = epoch_loss
+        if epoch_test_loss < best_loss:
+            best_loss = epoch_test_loss
             best_model_wts = model.state_dict()
             torch.save(best_model_wts, os.path.join(log_dir, 'best_model.pth'))
     
     # 训练结束后加载最佳模型权重
     model.load_state_dict(best_model_wts)
+    
+    # 可视化损失
+    plt.figure(figsize=(10, 5))
+    plt.plot(range(num_epochs), train_losses, label='Training Loss')
+    plt.plot(range(num_epochs), test_losses, label='Test Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Test Loss')
+    plt.legend()
+    plt.savefig(os.path.join(log_dir, 'loss_plot.png'))
+    plt.show()
+    
     return model
 
 # 定义推理函数
-def infer_model(model, dataloader, device='cuda'):
+def infer_model(model, dataloader, log_dir, device='cuda'):
     model.eval()
-    inference_dir = os.path.join('logs', datetime.now().strftime('%Y%m%d_%H%M%S'), 'inference')
+    inference_dir = os.path.join(log_dir, 'inference')
     os.makedirs(inference_dir, exist_ok=True)
 
     with torch.no_grad():
@@ -145,12 +193,15 @@ def infer_model(model, dataloader, device='cuda'):
 
 # 主函数
 def main():
-    # parent_dir = '/home/fdu06/jingzhi_dev/datasets/only-component'  # 数据集目录
-    parent_dir = "/home/chenzhuofan/project_que/datasets/only-component/"
+    parent_dir = os.path.join(current_dir, 'datasets', 'only-component')  # 数据集目录
     parent_dir_train = os.path.join(parent_dir, 'train')
     parent_dir_test = os.path.join(parent_dir, 'test')
-    batch_size = 4
+    batch_size = 1
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # 使用绝对路径创建日志目录
+    log_dir = os.path.join(current_dir, 'logs', datetime.now().strftime('%Y%m%d_%H%M%S'))
+    os.makedirs(log_dir, exist_ok=True)
 
     # 数据集和数据加载器
     train_dataset = ImageDataset(parent_dir_train)
@@ -172,11 +223,11 @@ def main():
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     
-    # 训练模型
-    model = train_model(model, train_loader, criterion, optimizer, num_epochs=100, device=device)
+    # 训练和测试模型
+    trained_model = train_and_evaluate_model(model, train_loader, test_loader, criterion, optimizer, log_dir, num_epochs=100, device=device)
     
-    # 加载最佳权重并对测试集进行推理
-    infer_model(model, test_loader, device=device)
+    # 执行推理
+    infer_model(trained_model, test_loader, log_dir, device=device)
 
 if __name__ == "__main__":
     main()
