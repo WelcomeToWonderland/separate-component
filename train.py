@@ -149,7 +149,7 @@ def main():
     parent_dir = "/home/chenzhuofan/project_que/datasets/only-component/"
     parent_dir_train = os.path.join(parent_dir, 'train')
     parent_dir_test = os.path.join(parent_dir, 'test')
-    batch_size = 8
+    batch_size = 4
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # 数据集和数据加载器
