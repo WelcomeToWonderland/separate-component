@@ -1,10 +1,12 @@
 import os
+import numpy as np
+import cv2
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageOps
 from datetime import datetime
 from alive_progress import alive_bar
 from model.han import make_model  # 导入自定义模型
@@ -15,7 +17,6 @@ class ImageDataset(Dataset):
         self.image_dir = os.path.join(parent_dir, 'img')
         self.label_dir = os.path.join(parent_dir, 'label')
         self.transform = transform or transforms.Compose([
-            transforms.Resize((224, 224)),  # 调整图像大小
             transforms.ToTensor(),  # 将图像转换为Tensor
         ])
         self.image_list = [f for f in os.listdir(self.label_dir) if f.endswith('.png')]  # 从label文件夹中获取文件名列表
@@ -30,13 +31,57 @@ class ImageDataset(Dataset):
         
         image = Image.open(image_path).convert("RGB")
         label = Image.open(label_path).convert("RGB")
+
+        # 使用预处理方法处理图像
+        image = self.preprocess_image(image)
+        label = self.preprocess_image(label)
         
         if self.transform:
             image = self.transform(image)
             label = self.transform(label)
         
         return image, label
+    
+    def preprocess_image(self, image):
+        # 将图像转换为NumPy数组
+        image_np = np.array(image)
+        
+        # 目标尺寸
+        target_width = 1024
+        target_height = 1024
 
+        # 获取原始图像尺寸
+        old_width, old_height = image.size
+
+        # 计算填充量
+        left = (target_width - old_width) // 2
+        top = (target_height - old_height) // 2
+        right = target_width - old_width - left
+        bottom = target_height - old_height - top
+
+        # 确保填充量非负
+        left = max(left, 0)
+        top = max(top, 0)
+        right = max(right, 0)
+        bottom = max(bottom, 0)
+        
+        # 应用填充
+        padded_image = ImageOps.expand(image, border=(left, top, right, bottom), fill=255)
+        
+        # 将填充后的图像转换为NumPy数组
+        padded_image_np = np.array(padded_image)
+        
+        # 图像预处理：灰度化和二值化
+        gray = cv2.cvtColor(padded_image_np, cv2.COLOR_RGB2GRAY)
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 将处理后的图像转换回PIL图像
+        processed_image = Image.fromarray(binary)
+        
+        # Center Crop到1024x1024
+        processed_image = transforms.functional.center_crop(processed_image, (1024, 1024))
+        
+        return processed_image
 # 定义训练函数
 def train_model(model, dataloader, criterion, optimizer, num_epochs=100, device='cuda'):
     log_dir = os.path.join('logs', datetime.now().strftime('%Y%m%d_%H%M%S'))
@@ -100,7 +145,7 @@ def infer_model(model, dataloader, device='cuda'):
 
 # 主函数
 def main():
-    parent_dir = '/path/to/your/dataset'
+    parent_dir = '/home/fdu06/jingzhi_dev/datasets/only-component'  # 数据集目录
     batch_size = 32
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
