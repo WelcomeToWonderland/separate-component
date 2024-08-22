@@ -224,7 +224,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     
     # 训练和测试模型
-    trained_model = train_and_evaluate_model(model, train_loader, test_loader, criterion, optimizer, log_dir, num_epochs=100, device=device)
+    trained_model = train_and_evaluate_model(model, train_loader, test_loader, criterion, optimizer, log_dir, num_epochs=200, device=device)
     
     # 执行推理
     infer_model(trained_model, test_loader, log_dir, device=device)
