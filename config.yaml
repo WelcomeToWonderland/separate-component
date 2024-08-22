@@ -1,0 +1,9 @@
+io:
+  log_dir: logs/
+  data_dir: /home/dxl/Data/wireframe1_datarota_3w  
+
+model:
+
+train:
+  seed: 1   # 随机数种子
+
