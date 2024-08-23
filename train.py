@@ -72,13 +72,13 @@ class ImageDataset(Dataset):
         # 计算填充量以确保输出尺寸大于原始尺寸
         if width < output_size[0]:
             padding_left = max((output_size[0] - width) // 2, 0)
-            padding_right = output_size[0] - width - padding_left
+            padding_right = max((output_size[0] - width) - padding_left, 0)
         else:
             padding_left = padding_right = 0
 
         if height < output_size[1]:
             padding_top = max((output_size[1] - height) // 2, 0)
-            padding_bottom = output_size[1] - height - padding_top
+            padding_bottom = max((output_size[1] - height) - padding_top, 0)
         else:
             padding_top = padding_bottom = 0
 
@@ -193,7 +193,7 @@ def infer_model(model, dataloader, log_dir, device='cuda'):
 
 # 主函数
 def main():
-    parent_dir = os.path.join(current_dir, 'datasets', 'only-component')  # 数据集目录
+    parent_dir = '/home/fdu06/que/datasets/only-component'  # 数据集目录
     parent_dir_train = os.path.join(parent_dir, 'train')
     parent_dir_test = os.path.join(parent_dir, 'test')
     batch_size = 1
@@ -224,7 +224,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     
     # 训练和测试模型
-    trained_model = train_and_evaluate_model(model, train_loader, test_loader, criterion, optimizer, log_dir, num_epochs=200, device=device)
+    trained_model = train_and_evaluate_model(model, train_loader, test_loader, criterion, optimizer, log_dir, num_epochs=100, device=device)
     
     # 执行推理
     infer_model(trained_model, test_loader, log_dir, device=device)
